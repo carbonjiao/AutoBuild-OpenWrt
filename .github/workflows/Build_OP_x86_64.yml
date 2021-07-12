@@ -18,8 +18,12 @@ on:
   #schedule:
   #  - cron: 0 8 * * 5
   
-  #watch:
-  #  types: [started]
+  workflow_dispatch:
+    inputs:
+      ssh:
+        description: 'SSH connection to Actions'
+        required: false
+        default: 'false'
 
 jobs:
   build:
@@ -99,6 +103,13 @@ jobs:
         find dl -size -1024c -exec ls -l {} \;
         find dl -size -1024c -exec rm -f {} \;
 
+    - name: SSH 连接到编译进程Actions
+      uses: P3TERX/ssh2actions@v1.0.0
+      if: github.event.inputs.ssh == 'true' || contains(github.event.action, 'ssh')
+      env:
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          
     - name: Build firmware
       working-directory: ./openwrt
       run: |
