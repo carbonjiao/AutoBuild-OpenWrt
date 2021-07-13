@@ -130,7 +130,7 @@ jobs:
     #    path: openwrt/bin
 
     - name: 编译固件
-      #id: compile
+      id: compile
       run: |
         cd openwrt
         echo -e "$(nproc) thread compile"
