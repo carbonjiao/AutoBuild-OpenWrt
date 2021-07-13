@@ -129,7 +129,7 @@ jobs:
     #    name: OpenWrt
     #    path: openwrt/bin
 
-     - name: 编译固件
+    - name: 编译固件
         id: compile
         run: |
           cd openwrt
@@ -144,22 +144,22 @@ jobs:
           fi
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
 
-      - name: 显示失败日志最后200行
+    - name: 显示失败日志最后200行
         if: failure()
         run: tail -n 200 /tmp/openwrt-build.log
-
-      - name: 显示配置文件 
+        
+    - name: 显示配置文件 
         if: failure()
         run: cat openwrt/.config
 
-      - name: 上传二进制目录
+    - name: 上传二进制目录
         uses: actions/upload-artifact@main
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
         with:
           name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: openwrt/bin
 
-      - name: 整理组织文件
+    - name: 整理组织文件
         id: organize
         if: steps.compile.outputs.status == 'success' && !cancelled()
         run: |
@@ -169,28 +169,28 @@ jobs:
           echo "TARGET_DIR=$(echo $PWD | sed 's#^.*/openwrt/bin/##')" >> $GITHUB_ENV
           echo "::set-output name=status::success"
           
-      - name: 上传固件目录
+    - name: 上传固件目录
         uses: actions/upload-artifact@main
         if: steps.organize.outputs.status == 'success' && !cancelled()
         with:
           name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: ${{ env.FIRMWARE }}
 
-      - name: 上传固件到奶牛快传cowtransfer
+    - name: 上传固件到奶牛快传cowtransfer
         if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
         run: |
           curl -fsSL git.io/file-transfer | sh
           ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
           echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
 
-      - name: 上传固件到WeTransfer
+    - name: 上传固件到WeTransfer
         if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
         run: |
           curl -fsSL git.io/file-transfer | sh
           ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
           echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
   
-      - name: 获取OpenWRT仓库位置CDN
+    - name: 获取OpenWRT仓库位置CDN
         uses: actions/checkout@v2
         if: steps.organize.outputs.status == 'success' && env.CDN != '' && !cancelled()
         with:
@@ -199,7 +199,7 @@ jobs:
           fetch-depth: 2
           path: cdn
 
-      - name: 上传到CDN
+    - name: 上传到CDN
         if: steps.organize.outputs.status == 'success' && env.CDN != '' && !cancelled()
         run: |
           git config --global user.name "Actions"
