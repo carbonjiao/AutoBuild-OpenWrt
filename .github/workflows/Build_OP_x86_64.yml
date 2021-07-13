@@ -142,6 +142,7 @@ jobs:
             echo "DEVICE_NAME=_${FALLBACK_DEVICE_NAME}" >> $GITHUB_ENV
           fi
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
       - name: 显示失败日志最后200行
         if: failure()
         run: tail -n 200 /tmp/openwrt-build.log
@@ -180,12 +181,14 @@ jobs:
           curl -fsSL git.io/file-transfer | sh
           ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
           echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
+
       - name: 上传固件到WeTransfer
         if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
         run: |
           curl -fsSL git.io/file-transfer | sh
           ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
           echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+  
       - name: 获取OpenWRT仓库位置CDN
         uses: actions/checkout@v2
         if: steps.organize.outputs.status == 'success' && env.CDN != '' && !cancelled()
