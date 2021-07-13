@@ -25,6 +25,14 @@ on:
         required: false
         default: 'false'
 
+env:
+  UPLOAD_BIN_DIR: false
+  UPLOAD_FIRMWARE: true
+  UPLOAD_COWTRANSFER: true
+  CDN: carbonjiao/cdn
+  REPO_VERSION: 20.4.8
+
+  
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -110,14 +118,109 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           
-    - name: Build firmware
-      working-directory: ./openwrt
-      run: |
-        echo -e "$(nproc) thread build."
-        make -j$(nproc) V=s
+    #- name: Build firmware
+    #  working-directory: ./openwrt
+    #  run: |
+    #    echo -e "$(nproc) thread build."
+    #    make -j$(nproc) V=s
 
-    - name : Upload artifact
-      uses: actions/upload-artifact@master
-      with:
-        name: OpenWrt
-        path: openwrt/bin
+    #- name : Upload artifact
+    #  uses: actions/upload-artifact@master
+    #  with:
+    #    name: OpenWrt
+    #    path: openwrt/bin
+
+     - name: 编译固件
+        id: compile
+        run: |
+          cd openwrt
+          echo -e "$(nproc) thread compile"
+          make -j$(nproc) || bash -c 'set -o pipefail ; make -j1 V=s 2>&1 | tee /tmp/openwrt-build.log'
+          echo "::set-output name=status::success"
+          grep '^CONFIG_TARGET.*DEVICE.*=y' .config | sed -r 's/.*DEVICE_(.*)=y/\1/' > DEVICE_NAME
+          if [ -s DEVICE_NAME ]; then
+            echo "DEVICE_NAME=_$(cat DEVICE_NAME)" >> $GITHUB_ENV
+          else
+            echo "DEVICE_NAME=_${FALLBACK_DEVICE_NAME}" >> $GITHUB_ENV
+          fi
+          echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+      - name: 显示失败日志最后200行
+        if: failure()
+        run: tail -n 200 /tmp/openwrt-build.log
+
+      - name: 显示配置文件 
+        if: failure()
+        run: cat openwrt/.config
+
+      - name: 上传二进制目录
+        uses: actions/upload-artifact@main
+        if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
+        with:
+          name: OpenWrt_bin${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: openwrt/bin
+
+      - name: 整理组织文件
+        id: organize
+        if: steps.compile.outputs.status == 'success' && !cancelled()
+        run: |
+          cd openwrt/bin/targets/*/*
+          mv packages ../../../../tmp/
+          echo "FIRMWARE=$PWD" >> $GITHUB_ENV
+          echo "TARGET_DIR=$(echo $PWD | sed 's#^.*/openwrt/bin/##')" >> $GITHUB_ENV
+          echo "::set-output name=status::success"
+          
+      - name: 上传固件目录
+        uses: actions/upload-artifact@main
+        if: steps.organize.outputs.status == 'success' && !cancelled()
+        with:
+          name: OpenWrt_firmware${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
+          path: ${{ env.FIRMWARE }}
+
+      - name: 上传固件到奶牛快传cowtransfer
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
+        run: |
+          curl -fsSL git.io/file-transfer | sh
+          ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
+          echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
+      - name: 上传固件到WeTransfer
+        if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
+        run: |
+          curl -fsSL git.io/file-transfer | sh
+          ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
+          echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
+      - name: 获取OpenWRT仓库位置CDN
+        uses: actions/checkout@v2
+        if: steps.organize.outputs.status == 'success' && env.CDN != '' && !cancelled()
+        with:
+          token: ${{ secrets.CDN_TOKEN }}
+          repository: ${{ env.CDN }}
+          fetch-depth: 2
+          path: cdn
+
+      - name: 上传到CDN
+        if: steps.organize.outputs.status == 'success' && env.CDN != '' && !cancelled()
+        run: |
+          git config --global user.name "Actions"
+          git config --global user.email "actions@github.com"
+          mv ${FIRMWARE}/sha256sums ${FIRMWARE}/sha256sums.new
+          sed -i '/ *config.seed$/d' ${FIRMWARE}/sha256sums.new
+          mv ${FIRMWARE}/config.seed ${FIRMWARE}/$CONFIG_FILE
+          
+          for first in true false; do
+            [ -f cdn/.reset ] && git -C cdn reset HEAD^
+            mkdir -p cdn/openwrt/release/${REPO_VERSION}/${TARGET_DIR}
+            cat ${FIRMWARE}/sha256sums.new >> cdn/openwrt/release/${REPO_VERSION}/${TARGET_DIR}/sha256sums
+            tar -cC ${FIRMWARE} . | tar -xC cdn/openwrt/release/${REPO_VERSION}/${TARGET_DIR}
+            rm -f cdn/openwrt/release/${REPO_VERSION}/${TARGET_DIR}/sha256sums.new
+            [ "$FALLBACK_DEVICE_NAME" == "$TARGET_WITH_MODULES" ] && cp -a openwrt/bin/packages cdn/openwrt/release/${REPO_VERSION}/
+            [ "$FALLBACK_DEVICE_NAME" == "$TARGET_WITH_MODULES" ] && cp -a openwrt/tmp/packages cdn/openwrt/release/${REPO_VERSION}/${TARGET_DIR}/
+            git -C cdn add --all
+            git -C cdn commit -m 'release'
+            if git -C cdn push `[ -f cdn/.reset ] && echo -f`; then
+              break
+            elif $first; then
+              git -C cdn reset --hard HEAD^ && git -C cdn pull
+            else
+              exit -1
+            fi
+          done
