@@ -10,20 +10,18 @@ name: Build_x86_64
 on: 
   release:
     types: [published]
-
-  #push:
-  #  branches: 
-  #    - master
-
-  #schedule:
-  #  - cron: 0 8 * * 5
-  
   workflow_dispatch:
     inputs:
       ssh:
         description: 'SSH connection to Actions'
         required: false
         default: 'false'
+  #push:
+  #  branches: 
+  #    - master
+
+  #schedule:
+  #  - cron: 0 8 * * 5
 
 env:
   UPLOAD_BIN_DIR: false
